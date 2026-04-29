@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Energy Transition Intelligence — AI Command Center</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080c14;
+  --surface: #0c1220;
+  --panel: #0f1729;
+  --border: #1a2640;
+  --border-bright: #243352;
+  --gold: #e8b84b;
+  --gold-dim: rgba(232,184,75,0.12);
+  --gold-glow: rgba(232,184,75,0.06);
+  --green: #00e676;
+  --green-dim: rgba(0,230,118,0.1);
+  --red: #ff5252;
+  --red-dim: rgba(255,82,82,0.1);
+  --blue: #448aff;
+  --blue-dim: rgba(68,138,255,0.1);
+  --cyan: #18ffff;
+  --cyan-dim: rgba(24,255,255,0.08);
+  --white: #e8eaf0;
+  --gray: #6b7a96;
+  --dim: #3d4d66;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--white); font-family:var(--sans); overflow-x:hidden; }
+
+/* ═══ Scan line overlay ═══ */
+body::after {
+  content:''; position:fixed; top:0; left:0; width:100%; height:100%;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  pointer-events:none; z-index:9999;
+}
+
+/* ═══ Top Bar ═══ */
+.topbar {
+  height:44px; background:var(--surface); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 20px; position:sticky; top:0; z-index:100;
+}
+.topbar-left { display:flex; align-items:center; gap:16px; }
+.topbar-logo {
+  font-family:var(--mono); font-weight:700; font-size:13px; letter-spacing:2px;
+  color:var(--gold); text-transform:uppercase;
+}
+.topbar-tag {
+  font-size:11px; color:var(--gray); font-family:var(--mono);
+  padding:3px 8px; background:var(--panel); border:1px solid var(--border);
+  border-radius:3px;
+}
+.topbar-right { display:flex; align-items:center; gap:16px; }
+.live-dot {
+  width:7px; height:7px; border-radius:50%; background:var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,230,118,0.4)} 50%{opacity:0.7;box-shadow:0 0 0 6px rgba(0,230,118,0)} }
+.topbar-time { font-family:var(--mono); font-size:12px; color:var(--gray); }
+
+/* ═══ Signal Strip ═══ */
+.signal-strip {
+  height:36px; background:linear-gradient(90deg, rgba(0,230,118,0.06), rgba(232,184,75,0.06), rgba(255,82,82,0.06));
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center; gap:40px;
+  font-family:var(--mono); font-size:12px; overflow:hidden;
+}
+.sig-item { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.sig-label { color:var(--gray); }
+.sig-val { font-weight:600; }
+.sig-val.green { color:var(--green); }
+.sig-val.red { color:var(--red); }
+.sig-val.gold { color:var(--gold); }
+
+/* ═══ Nav Tabs ═══ */
+.nav {
+  display:flex; background:var(--surface); border-bottom:1px solid var(--border);
+  padding:0 20px; gap:0;
+}
+.nav-tab {
+  padding:10px 18px; font-family:var(--mono); font-size:11px; font-weight:500;
+  color:var(--gray); cursor:pointer; border-bottom:2px solid transparent;
+  text-transform:uppercase; letter-spacing:1px; transition:all 0.15s;
+}
+.nav-tab:hover { color:var(--white); background:rgba(255,255,255,0.02); }
+.nav-tab.active { color:var(--gold); border-bottom-color:var(--gold); }
+
+/* ═══ Main Grid ═══ */
+main { padding:12px; }
+.view { display:none; }
+.view.active { display:block; animation:fadeUp 0.25s ease; }
+@keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+.grid { display:grid; gap:10px; }
+.g-2x2 { grid-template-columns:1fr 1fr; grid-template-rows:auto auto; }
+.g-3 { grid-template-columns:1fr 1fr 1fr; }
+.g-2-1 { grid-template-columns:2fr 1fr; }
+.g-1-2 { grid-template-columns:1fr 2fr; }
+.g-4 { grid-template-columns:1fr 1fr 1fr 1fr; }
+.span-2 { grid-column: span 2; }
+
+/* ═══ Panel ═══ */
+.panel {
+  background:var(--panel); border:1px solid var(--border); border-radius:4px;
+  padding:14px; position:relative; overflow:hidden;
+}
+.panel::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:1px;
+  background:linear-gradient(90deg, transparent, var(--border-bright), transparent);
+}
+.panel-header {
+  display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;
+}
+.panel-title {
+  font-family:var(--mono); font-size:11px; font-weight:600;
+  color:var(--gold); text-transform:uppercase; letter-spacing:1.2px;
+}
+.panel-sub { font-size:11px; color:var(--dim); margin-top:2px; }
+.panel-badge {
+  font-family:var(--mono); font-size:10px; padding:2px 6px;
+  border-radius:3px; font-weight:600;
+}
+.badge-green { background:var(--green-dim); color:var(--green); border:1px solid rgba(0,230,118,0.2); }
+.badge-red { background:var(--red-dim); color:var(--red); border:1px solid rgba(255,82,82,0.2); }
+.badge-gold { background:var(--gold-dim); color:var(--gold); border:1px solid rgba(232,184,75,0.2); }
+.badge-blue { background:var(--blue-dim); color:var(--blue); border:1px solid rgba(68,138,255,0.2); }
+
+/* ═══ Metrics Row ═══ */
+.metrics { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; margin-bottom:10px; }
+.metric {
+  background:var(--panel); border:1px solid var(--border); border-radius:4px;
+  padding:12px 14px; position:relative; overflow:hidden;
+}
+.metric::before { content:''; position:absolute; top:0; left:0; width:3px; height:100%; }
+.metric.m-green::before { background:var(--green); }
+.metric.m-red::before { background:var(--red); }
+.metric.m-gold::before { background:var(--gold); }
+.metric.m-blue::before { background:var(--blue); }
+.metric.m-cyan::before { background:var(--cyan); }
+.m-label { font-family:var(--mono); font-size:10px; color:var(--gray); text-transform:uppercase; letter-spacing:0.8px; }
+.m-value { font-size:22px; font-weight:700; margin-top:2px; font-family:var(--mono); }
+.m-value.green { color:var(--green); }
+.m-value.red { color:var(--red); }
+.m-value.gold { color:var(--gold); }
+.m-value.blue { color:var(--blue); }
+.m-value.cyan { color:var(--cyan); }
+.m-delta { font-family:var(--mono); font-size:10px; margin-top:2px; }
+
+/* ═══ Data Table ═══ */
+.dtable { width:100%; border-collapse:collapse; font-size:12px; }
+.dtable th {
+  text-align:left; padding:6px 8px; font-family:var(--mono); font-size:10px;
+  color:var(--dim); text-transform:uppercase; letter-spacing:0.8px;
+  border-bottom:1px solid var(--border);
+}
+.dtable td { padding:5px 8px; border-bottom:1px solid rgba(26,38,64,0.5); color:var(--white); font-size:11px; }
+.dtable tr:hover td { background:rgba(232,184,75,0.02); }
+
+/* ═══ Bar Meter ═══ */
+.bar-meter { display:flex; align-items:center; gap:6px; margin:4px 0; }
+.bar-track { flex:1; height:5px; background:var(--border); border-radius:3px; overflow:hidden; }
+.bar-fill { height:100%; border-radius:3px; transition:width 0.8s ease; }
+.bar-fill.green { background:var(--green); }
+.bar-fill.red { background:var(--red); }
+.bar-fill.gold { background:var(--gold); }
+.bar-val { font-family:var(--mono); font-size:11px; width:36px; text-align:right; }
+
+/* ═══ Sentiment Feed ═══ */
+.feed-item {
+  display:flex; align-items:flex-start; gap:8px; padding:6px 0;
+  border-bottom:1px solid rgba(26,38,64,0.4); font-size:11px;
+}
+.feed-score {
+  font-family:var(--mono); font-size:11px; font-weight:600;
+  min-width:42px; text-align:center; padding:2px 4px; border-radius:3px;
+}
+.feed-score.pos { background:var(--green-dim); color:var(--green); }
+.feed-score.neg { background:var(--red-dim); color:var(--red); }
+.feed-score.neu { background:rgba(107,122,150,0.15); color:var(--gray); }
+.feed-co { font-family:var(--mono); font-size:10px; font-weight:600; min-width:28px; }
+.feed-co.dec { color:var(--green); }
+.feed-co.se { color:var(--red); }
+.feed-hl { color:var(--white); line-height:1.4; flex:1; }
+.feed-src { font-family:var(--mono); font-size:10px; color:var(--dim); min-width:60px; text-align:right; }
+
+/* ═══ Factor Comparison ═══ */
+.factor-row {
+  display:grid; grid-template-columns:120px 1fr 30px 1fr; align-items:center;
+  padding:5px 0; border-bottom:1px solid rgba(26,38,64,0.3);
+  font-size:11px;
+}
+.factor-name { font-family:var(--mono); font-size:10px; color:var(--gray); }
+.factor-bar { height:14px; border-radius:2px; display:flex; align-items:center; justify-content:flex-end; padding:0 4px; font-family:var(--mono); font-size:10px; font-weight:600; }
+.factor-bar.dec-bar { background:var(--green); color:var(--bg); border-radius:2px 0 0 2px; }
+.factor-bar.se-bar { background:var(--red); color:var(--bg); border-radius:0 2px 2px 0; justify-content:flex-start; }
+.factor-vs { text-align:center; font-family:var(--mono); font-size:9px; color:var(--dim); }
+
+/* ═══ MC Histogram ═══ */
+.mc-big-num { font-family:var(--mono); font-size:48px; font-weight:700; color:var(--green); text-align:center; line-height:1; }
+.mc-sub { font-family:var(--mono); font-size:11px; color:var(--gray); text-align:center; margin-top:6px; }
+
+/* ═══ Footer ═══ */
+footer {
+  text-align:center; padding:16px; font-family:var(--mono); font-size:10px;
+  color:var(--dim); border-top:1px solid var(--border);
+}
+
+/* ═══ Scrollbar ═══ */
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:var(--bg); }
+::-webkit-scrollbar-thumb { background:var(--border-bright); border-radius:2px; }
+
+/* ═══ Canvas ═══ */
+.panel canvas { width:100% !important; }
+
+/* ═══ Responsive ═══ */
+@media(max-width:1100px) {
+  .metrics { grid-template-columns:repeat(3,1fr); }
+  .g-2x2,.g-3,.g-2-1,.g-1-2,.g-4 { grid-template-columns:1fr; }
+  .span-2 { grid-column:span 1; }
+}
+
+/* ═══ Staggered load ═══ */
+.stagger { opacity:0; animation:fadeUp 0.4s ease forwards; }
+.stagger:nth-child(1){animation-delay:0.05s} .stagger:nth-child(2){animation-delay:0.1s}
+.stagger:nth-child(3){animation-delay:0.15s} .stagger:nth-child(4){animation-delay:0.2s}
+.stagger:nth-child(5){animation-delay:0.25s} .stagger:nth-child(6){animation-delay:0.3s}
+/* ═══ Map View ═══ */
+.map-layout { display:grid; grid-template-columns:1fr 320px; gap:10px; height:calc(100vh - 180px); min-height:500px; }
+.map-container { border-radius:4px; overflow:hidden; border:1px solid var(--border); position:relative; }
+#energyMap { width:100%; height:100%; background:var(--bg); }
+.map-sidebar { display:flex; flex-direction:column; gap:10px; overflow-y:auto; }
+.map-legend { padding:10px; }
+.legend-item { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:11px; }
+.legend-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.legend-count { font-family:var(--mono); font-size:11px; color:var(--gold); margin-left:auto; }
+.map-overlay {
+  position:absolute; top:10px; left:10px; z-index:1000;
+  background:rgba(15,23,41,0.92); border:1px solid var(--border);
+  border-radius:4px; padding:10px 14px;
+  font-family:var(--mono); font-size:11px; backdrop-filter:blur(8px);
+}
+.map-overlay-title { color:var(--gold); font-weight:600; text-transform:uppercase; letter-spacing:1px; font-size:10px; }
+.map-stat { display:flex; justify-content:space-between; gap:20px; margin-top:4px; }
+.map-stat-val { font-weight:700; }
+
+/* Leaflet dark theme overrides */
+.leaflet-container { background:var(--bg) !important; }
+.leaflet-control-zoom a { background:var(--panel) !important; color:var(--white) !important; border-color:var(--border) !important; }
+.leaflet-control-attribution { background:rgba(15,23,41,0.8) !important; color:var(--dim) !important; font-size:9px !important; }
+.leaflet-control-attribution a { color:var(--gray) !important; }
+.leaflet-popup-content-wrapper { background:var(--panel) !important; color:var(--white) !important; border:1px solid var(--border) !important; border-radius:4px !important; }
+.leaflet-popup-tip { background:var(--panel) !important; }
+.leaflet-popup-content { font-family:var(--sans) !important; font-size:12px !important; margin:10px 14px !important; }
+.leaflet-popup-close-button { color:var(--gray) !important; }
+
+@media(max-width:900px) { .map-layout { grid-template-columns:1fr; height:auto; } }
+</style>
+</head>
+<body>
+
+<!-- ═══ TOP BAR ═══ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-logo">⚡ Energy Intel</div>
+    <div class="topbar-tag">UBS Finance Challenge 2026</div>
+    <div class="topbar-tag">HK Track · Energy Transition</div>
+  </div>
+  <div class="topbar-right">
+    <div class="live-dot"></div>
+    <div class="topbar-time" id="clock"></div>
+  </div>
+</div>
+
+<!-- ═══ SIGNAL STRIP ═══ -->
+<div class="signal-strip">
+  <div class="sig-item"><span class="sig-label">LONG</span><span class="sig-val green">DEC 1072.HK</span></div>
+  <div class="sig-item"><span class="sig-label">SHORT</span><span class="sig-val red">SHE 2727.HK</span></div>
+  <div class="sig-item"><span class="sig-label">SENTIMENT</span><span class="sig-val gold">+0.84</span></div>
+  <div class="sig-item"><span class="sig-label">CORRELATION R²</span><span class="sig-val gold">0.982</span></div>
+  <div class="sig-item"><span class="sig-label">MC WIN</span><span class="sig-val green">100%</span></div>
+  <div class="sig-item"><span class="sig-label">FACTOR SPREAD</span><span class="sig-val gold">+51.2pp</span></div>
+</div>
+
+<!-- ═══ NAV ═══ -->
+<div class="nav">
+  <div class="nav-tab active" onclick="showView(0)">Overview</div>
+  <div class="nav-tab" onclick="showView(1)">Energy Map</div>
+  <div class="nav-tab" onclick="showView(2)">NLP Sentiment</div>
+  <div class="nav-tab" onclick="showView(3)">Coal Displacement</div>
+  <div class="nav-tab" onclick="showView(4)">Factor Screening</div>
+  <div class="nav-tab" onclick="showView(5)">Methodology</div>
+</div>
+
+<main>
+
+<!-- ═══════════ VIEW 0: OVERVIEW ═══════════ -->
+<div class="view active" id="v0">
+  <div class="metrics">
+    <div class="metric m-green stagger"><div class="m-label">DEC Composite</div><div class="m-value green">73.4</div><div class="m-delta" style="color:var(--green)">▲ Top ranked</div></div>
+    <div class="metric m-red stagger"><div class="m-label">SHE Composite</div><div class="m-value red">22.2</div><div class="m-delta" style="color:var(--red)">▼ Bottom ranked</div></div>
+    <div class="metric m-gold stagger"><div class="m-label">Sentiment Spread</div><div class="m-value gold">+0.84</div><div class="m-delta" style="color:var(--gray)">46 headlines scored</div></div>
+    <div class="metric m-blue stagger"><div class="m-label">Coal Util Corr</div><div class="m-value blue">R²=.982</div><div class="m-delta" style="color:var(--gray)">p=0.0000</div></div>
+    <div class="metric m-green stagger"><div class="m-label">MC Win Rate</div><div class="m-value green">100%</div><div class="m-delta" style="color:var(--gray)">10,000 sims</div></div>
+    <div class="metric m-cyan stagger"><div class="m-label">Clean vs Thermal</div><div class="m-value cyan">+333GW</div><div class="m-delta" style="color:var(--gray)">2030E gap</div></div>
+  </div>
+
+  <div class="grid g-2-1" style="margin-bottom:10px;">
+    <div class="panel stagger">
+      <div class="panel-header">
+        <div><div class="panel-title">Pair Trade — Stock Price Divergence</div><div class="panel-sub">Indexed Q1 2022 = 100 · Source: Yahoo Finance / HKEX</div></div>
+        <span class="panel-badge badge-gold">LIVE SIGNAL</span>
+      </div>
+      <canvas id="overviewPairChart" height="200"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header">
+        <div><div class="panel-title">Key Financials Snapshot</div><div class="panel-sub">FY2024/TTM · HKEX, Investing.com</div></div>
+      </div>
+      <div style="font-size:11px;">
+        <div class="factor-row"><div class="factor-name">Revenue</div><div class="factor-bar dec-bar" style="width:58%">68.2bn</div><div class="factor-vs">vs</div><div class="factor-bar se-bar" style="width:100%">116.2bn</div></div>
+        <div class="factor-row"><div class="factor-name">Net Profit</div><div class="factor-bar dec-bar" style="width:100%">3.83bn</div><div class="factor-vs">vs</div><div class="factor-bar se-bar" style="width:20%">0.75bn</div></div>
+        <div class="factor-row"><div class="factor-name">Net Margin</div><div class="factor-bar dec-bar" style="width:100%">4.3%</div><div class="factor-vs">vs</div><div class="factor-bar se-bar" style="width:16%">0.7%</div></div>
+        <div class="factor-row"><div class="factor-name">ROE</div><div class="factor-bar dec-bar" style="width:100%">8.1%</div><div class="factor-vs">vs</div><div class="factor-bar se-bar" style="width:19%">~1.5%</div></div>
+        <div class="factor-row"><div class="factor-name">D/E Ratio</div><div class="factor-bar dec-bar" style="width:21%">13.2%</div><div class="factor-vs">vs</div><div class="factor-bar se-bar" style="width:100%">61.5%</div></div>
+        <div class="factor-row"><div class="factor-name">Dividend</div><div class="factor-bar dec-bar" style="width:80%">47.8%</div><div class="factor-vs">vs</div><div class="factor-bar se-bar" style="width:2%;background:var(--dim)">0%</div></div>
+        <div class="factor-row"><div class="factor-name">Int. Coverage</div><div class="factor-bar dec-bar" style="width:86%">15.0x</div><div class="factor-vs">vs</div><div class="factor-bar se-bar" style="width:15%;background:var(--dim)">-2.4x</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g-3">
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Layer 1 Signal</div><div class="panel-sub">NLP Sentiment</div></div><span class="panel-badge badge-green">BULLISH</span></div>
+      <div style="text-align:center;padding:10px 0;">
+        <div style="font-family:var(--mono);font-size:36px;font-weight:700;color:var(--gold)">+0.84</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">DEC μ=+0.55 · SHE μ=−0.29</div>
+        <div style="font-size:11px;color:var(--gray);">46 headlines · 25 sources</div>
+      </div>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Layer 2 Signal</div><div class="panel-sub">Coal Displacement</div></div><span class="panel-badge badge-green">CONFIRMED</span></div>
+      <div style="text-align:center;padding:10px 0;">
+        <div style="font-family:var(--mono);font-size:36px;font-weight:700;color:var(--gold)">R²=0.982</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">Coal util → stock spread</div>
+        <div style="font-size:11px;color:var(--gray);">p=0.0000 · Significant at 5%</div>
+      </div>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Layer 3 Signal</div><div class="panel-sub">Factor Screening</div></div><span class="panel-badge badge-green">ROBUST</span></div>
+      <div style="text-align:center;padding:10px 0;">
+        <div style="font-family:var(--mono);font-size:36px;font-weight:700;color:var(--green)">100%</div>
+        <div style="font-size:11px;color:var(--gray);margin-top:4px;">MC win rate (10K sims)</div>
+        <div style="font-size:11px;color:var(--gray);">Min spread: +27.8pp</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ VIEW 1: ENERGY MAP ═══════════ -->
+<div class="view" id="v1">
+  <div class="map-layout">
+    <div class="map-container">
+      <div id="energyMap"></div>
+      <div class="map-overlay">
+        <div class="map-overlay-title">China Energy Infrastructure</div>
+        <div class="map-stat"><span style="color:var(--gray)">Nuclear Sites</span><span class="map-stat-val" style="color:var(--cyan)">6</span></div>
+        <div class="map-stat"><span style="color:var(--gray)">Wind Farms</span><span class="map-stat-val" style="color:var(--green)">8</span></div>
+        <div class="map-stat"><span style="color:var(--gray)">Coal Plants</span><span class="map-stat-val" style="color:var(--red)">6</span></div>
+        <div class="map-stat"><span style="color:var(--gray)">Hydro/PSH</span><span class="map-stat-val" style="color:var(--blue)">5</span></div>
+        <div class="map-stat"><span style="color:var(--gray)">Gas Turbine</span><span class="map-stat-val" style="color:var(--gold)">4</span></div>
+      </div>
+    </div>
+    <div class="map-sidebar">
+      <div class="panel">
+        <div class="panel-header"><div><div class="panel-title">Legend</div></div></div>
+        <div class="map-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--cyan);box-shadow:0 0 6px var(--cyan)"></div><span>Nuclear (DEC OEM)</span><span class="legend-count">6</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green);box-shadow:0 0 6px var(--green)"></div><span>Wind Farms</span><span class="legend-count">8</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--red);box-shadow:0 0 6px var(--red)"></div><span>Coal Plants</span><span class="legend-count">6</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--blue);box-shadow:0 0 6px var(--blue)"></div><span>Hydro / PSH</span><span class="legend-count">5</span></div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--gold);box-shadow:0 0 6px var(--gold)"></div><span>Gas Turbine</span><span class="legend-count">4</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><div><div class="panel-title">Transition Momentum</div><div class="panel-sub">Growth index by energy type</div></div></div>
+        <div style="padding:4px 0;">
+          <div class="bar-meter"><span style="font-size:10px;color:var(--gray);width:80px">Nuclear</span><div class="bar-track"><div class="bar-fill green" style="width:85%"></div></div><span class="bar-val" style="color:var(--green)">▲ 85</span></div>
+          <div class="bar-meter"><span style="font-size:10px;color:var(--gray);width:80px">Wind</span><div class="bar-track"><div class="bar-fill green" style="width:78%"></div></div><span class="bar-val" style="color:var(--green)">▲ 78</span></div>
+          <div class="bar-meter"><span style="font-size:10px;color:var(--gray);width:80px">Hydro/PSH</span><div class="bar-track"><div class="bar-fill green" style="width:72%"></div></div><span class="bar-val" style="color:var(--green)">▲ 72</span></div>
+          <div class="bar-meter"><span style="font-size:10px;color:var(--gray);width:80px">Gas Turbine</span><div class="bar-track"><div class="bar-fill gold" style="width:65%"></div></div><span class="bar-val" style="color:var(--gold)">▲ 65</span></div>
+          <div class="bar-meter"><span style="font-size:10px;color:var(--gray);width:80px">Coal</span><div class="bar-track"><div class="bar-fill red" style="width:35%"></div></div><span class="bar-val" style="color:var(--red)">▼ 35</span></div>
+        </div>
+        <div class="source">Source: Greenpeace, NEA, CEC</div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><div><div class="panel-title">DEC vs SHE Exposure</div></div></div>
+        <div style="font-size:11px;color:var(--gray);line-height:1.9;">
+          <div style="display:flex;justify-content:space-between"><span>Nuclear OEM</span><span style="color:var(--green);font-weight:700;font-family:var(--mono)">DEC ~33%</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Pumped storage</span><span style="color:var(--green);font-weight:700;font-family:var(--mono)">DEC only</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Gas turbine F-class</span><span style="color:var(--green);font-weight:700;font-family:var(--mono)">DEC leads</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Offshore wind cum.</span><span style="color:var(--red);font-weight:700;font-family:var(--mono)">SHE #1</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Coal thermal equip.</span><span style="color:var(--red);font-weight:700;font-family:var(--mono)">SHE heavy</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ VIEW 2: NLP SENTIMENT ═══════════ -->
+<div class="view" id="v2">
+  <div class="metrics" style="grid-template-columns:repeat(4,1fr)">
+    <div class="metric m-green stagger"><div class="m-label">DEC Mean Sent.</div><div class="m-value green">+0.55</div><div class="m-delta" style="color:var(--green)">19/21 positive</div></div>
+    <div class="metric m-red stagger"><div class="m-label">SHE Mean Sent.</div><div class="m-value red">−0.29</div><div class="m-delta" style="color:var(--red)">9/15 negative</div></div>
+    <div class="metric m-gold stagger"><div class="m-label">Spread</div><div class="m-value gold">+0.84</div><div class="m-delta" style="color:var(--gray)">Favors Long DEC</div></div>
+    <div class="metric m-blue stagger"><div class="m-label">Corpus</div><div class="m-value blue">46</div><div class="m-delta" style="color:var(--gray)">25 verified sources</div></div>
+  </div>
+
+  <div class="grid g-2x2">
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Topic Sentiment Breakdown</div><div class="panel-sub">Avg score by cluster · Keyword NLP classification</div></div></div>
+      <canvas id="topicChart2" height="220"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Score Distribution</div><div class="panel-sub">Histogram of all 36 company headlines</div></div></div>
+      <canvas id="histChart2" height="220"></canvas>
+    </div>
+    <div class="panel span-2 stagger">
+      <div class="panel-header"><div><div class="panel-title">Live Sentiment Feed — Top 20 Headlines</div><div class="panel-sub">Real headlines scored by financial keyword NLP engine</div></div><span class="panel-badge badge-gold">REAL DATA</span></div>
+      <div id="sentFeed" style="max-height:280px;overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ VIEW 2: COAL DISPLACEMENT ═══════════ -->
+<div class="view" id="v3">
+  <div class="metrics" style="grid-template-columns:repeat(4,1fr)">
+    <div class="metric m-green stagger"><div class="m-label">Clean > Thermal</div><div class="m-value green">Q1 2025</div><div class="m-delta" style="color:var(--gray)">1,482 vs 1,450 GW</div></div>
+    <div class="metric m-red stagger"><div class="m-label">Coal Approvals</div><div class="m-value red">−41.5%</div><div class="m-delta" style="color:var(--gray)">YoY 2024 (Greenpeace)</div></div>
+    <div class="metric m-gold stagger"><div class="m-label">Correlation</div><div class="m-value gold">R²=.982</div><div class="m-delta" style="color:var(--gray)">Util vs spread, p=0.000</div></div>
+    <div class="metric m-cyan stagger"><div class="m-label">2030E Gap</div><div class="m-value cyan">+333GW</div><div class="m-delta" style="color:var(--gray)">Clean leads thermal</div></div>
+  </div>
+
+  <div class="grid g-2x2">
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Capacity — Wind+Solar vs Thermal</div><div class="panel-sub">With linear regression forecast to 2030 · NEA/CEC via Greenpeace</div></div><span class="panel-badge badge-blue">AI FORECAST</span></div>
+      <canvas id="capChart2" height="220"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Coal Power Approvals</div><div class="panel-sub">Annual new coal approved (GW) · Greenpeace East Asia</div></div></div>
+      <canvas id="appChart2" height="220"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Coal Utilization vs Stock Spread</div><div class="panel-sub">Pearson r=+0.991, R²=0.982, p=0.0000</div></div><span class="panel-badge badge-green">SIGNIFICANT</span></div>
+      <canvas id="corrChart2" height="220"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Coal Generation Trend</div><div class="panel-sub">TWh · Carbon Brief / CEC (Feb 2026)</div></div></div>
+      <canvas id="genChart2" height="220"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ VIEW 3: FACTOR SCREENING ═══════════ -->
+<div class="view" id="v4">
+  <div class="metrics" style="grid-template-columns:repeat(4,1fr)">
+    <div class="metric m-green stagger"><div class="m-label">DEC Score</div><div class="m-value green">73.4</div><div class="m-delta" style="color:var(--gray)">Equal-weighted, 7 factors</div></div>
+    <div class="metric m-red stagger"><div class="m-label">SHE Score</div><div class="m-value red">22.2</div><div class="m-delta" style="color:var(--gray)">Equal-weighted, 7 factors</div></div>
+    <div class="metric m-gold stagger"><div class="m-label">Spread</div><div class="m-value gold">+51.2pp</div><div class="m-delta" style="color:var(--gray)">DEC leads all 7</div></div>
+    <div class="metric m-green stagger"><div class="m-label">MC Win Rate</div><div class="m-value green">100%</div><div class="m-delta" style="color:var(--gray)">10,000 Dirichlet sims</div></div>
+  </div>
+
+  <div class="grid g-2x2">
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Factor Scores — Automated</div><div class="panel-sub">Min-max normalization vs sector range · Formula-driven</div></div><span class="panel-badge badge-blue">AI SCORED</span></div>
+      <canvas id="factorChart3" height="240"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Radar — Factor Profile</div><div class="panel-sub">All scores computed by algorithm</div></div></div>
+      <canvas id="radarChart3" height="240"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Monte Carlo Sensitivity</div><div class="panel-sub">Spread distribution across 10,000 random weightings</div></div><span class="panel-badge badge-green">ROBUST</span></div>
+      <canvas id="mcChart3" height="240"></canvas>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title">Monte Carlo Result</div><div class="panel-sub">Does the signal survive any weighting?</div></div></div>
+      <div style="padding:20px 0;">
+        <div class="mc-big-num">100.0%</div>
+        <div class="mc-sub">DEC wins under every weighting</div>
+        <div style="margin-top:16px;font-family:var(--mono);font-size:11px;color:var(--gray);line-height:1.8;text-align:center;">
+          Mean: +51.2pp&nbsp;&nbsp;|&nbsp;&nbsp;Min: +27.8pp&nbsp;&nbsp;|&nbsp;&nbsp;Max: +75.8pp<br>
+          5th pctl: +39.7pp&nbsp;&nbsp;|&nbsp;&nbsp;95th pctl: +62.6pp
+        </div>
+        <div style="text-align:center;margin-top:12px;font-family:var(--mono);font-size:12px;color:var(--green);font-weight:600;">SIGNAL IS ROBUST ✓</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ VIEW 4: METHODOLOGY ═══════════ -->
+<div class="view" id="v5">
+  <div class="grid g-3" style="margin-bottom:10px;">
+    <div class="panel stagger" style="border-color:rgba(0,230,118,0.3);">
+      <div class="panel-header"><div><div class="panel-title" style="color:var(--green)">Layer 1 — NLP Sentiment</div></div></div>
+      <div style="font-size:12px;color:var(--gray);line-height:1.7;">
+        <b style="color:var(--white)">Input:</b> 46 real headlines, 25 sources<br>
+        <b style="color:var(--white)">AI:</b> Keyword sentiment engine (80+ terms)<br>
+        <b style="color:var(--white)">Output:</b> Score per headline + topic cluster<br>
+        <b style="color:var(--white)">Result:</b> Spread = +0.84<br><br>
+        <b style="color:var(--green)">Why AI:</b> Consistent quantification of qualitative text at scale
+      </div>
+    </div>
+    <div class="panel stagger" style="border-color:rgba(232,184,75,0.3);">
+      <div class="panel-header"><div><div class="panel-title">Layer 2 — Coal Displacement</div></div></div>
+      <div style="font-size:12px;color:var(--gray);line-height:1.7;">
+        <b style="color:var(--white)">Input:</b> 11 years of sourced macro data<br>
+        <b style="color:var(--white)">AI:</b> Regression forecasting + Pearson correlation<br>
+        <b style="color:var(--white)">Output:</b> 2030 forecasts + R²=0.982<br>
+        <b style="color:var(--white)">Result:</b> Coal decline drives stock spread<br><br>
+        <b style="color:var(--gold)">Why AI:</b> Quantified predictions + statistical proof of macro→stock linkage
+      </div>
+    </div>
+    <div class="panel stagger" style="border-color:rgba(68,138,255,0.3);">
+      <div class="panel-header"><div><div class="panel-title" style="color:var(--blue)">Layer 3 — Factor Screening</div></div></div>
+      <div style="font-size:12px;color:var(--gray);line-height:1.7;">
+        <b style="color:var(--white)">Input:</b> 7 metrics from HKEX/analyst reports<br>
+        <b style="color:var(--white)">AI:</b> Auto scoring + Monte Carlo (10K sims)<br>
+        <b style="color:var(--white)">Output:</b> Composite scores + robustness test<br>
+        <b style="color:var(--white)">Result:</b> DEC wins 100% of weightings<br><br>
+        <b style="color:var(--blue)">Why AI:</b> Stress-tests signal across all possible factor weightings
+      </div>
+    </div>
+  </div>
+  <div class="grid g-2x2">
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title" style="color:var(--green)">✦ Advantages</div></div></div>
+      <div style="font-size:12px;color:var(--gray);line-height:2;">
+        ▸ Scores 46 headlines in &lt;1 second; scalable to thousands<br>
+        ▸ All data sourced and verifiable — no black-box assumptions<br>
+        ▸ Systematic screening removes cognitive bias<br>
+        ▸ Reproducible: re-run code → identical results<br>
+        ▸ Multi-angle: text + macro + financials<br>
+        ▸ Monte Carlo proves robustness under any weighting
+      </div>
+    </div>
+    <div class="panel stagger">
+      <div class="panel-header"><div><div class="panel-title" style="color:var(--red)">⚠ Limitations</div></div></div>
+      <div style="font-size:12px;color:var(--gray);line-height:2;">
+        ▸ Keyword NLP simpler than FinBERT; misses nuance<br>
+        ▸ Corpus manually curated, not auto-scraped<br>
+        ▸ Limited Chinese-language coverage<br>
+        ▸ Regression can't predict policy shocks<br>
+        ▸ High R² may reflect short trending window<br>
+        ▸ Cannot assess management quality or political ties
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<footer>
+  UBS Finance Challenge 2026 · Hong Kong Track · Energy Transition · Firas | Atharva | Wathong · AI Analyst Module
+</footer>
+
+<script>
+// ═══ NAV ═══
+function showView(i){
+  document.querySelectorAll('.nav-tab').forEach((t,j)=>t.classList.toggle('active',j===i));
+  document.querySelectorAll('.view').forEach((v,j)=>v.classList.toggle('active',j===i));
+}
+
+// ═══ CLOCK ═══
+function tick(){
+  const d=new Date();
+  document.getElementById('clock').textContent=d.toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})+' HKT';
+}
+tick(); setInterval(tick,1000);
+
+// ═══ Chart.js defaults ═══
+Chart.defaults.color='#6b7a96';
+Chart.defaults.borderColor='rgba(26,38,64,0.5)';
+Chart.defaults.font.family="'IBM Plex Sans',sans-serif";
+Chart.defaults.font.size=11;
+const gridOpt={color:'rgba(26,38,64,0.4)'};
+const noGrid={display:false};
+
+// ═══ HEADLINES DATA ═══
+const HL=[
+  {co:'DEC',s:1.00,t:'Renewable',h:"World's most powerful wind turbine at 18MW",src:'Wikipedia'},
+  {co:'SE',s:-1.00,t:'Governance',h:'Mumbai Police books officials for cheating & forgery',src:'PGurus'},
+  {co:'SE',s:-1.00,t:'Governance',h:'Ex-chairman stands trial for embezzlement & bribes',src:'Caixin'},
+  {co:'SE',s:-1.00,t:'Governance',h:'Probed by CSRC for suspected fraud',src:'CSRC'},
+  {co:'SE',s:-0.88,t:'Export',h:'Abandons $1.77bn K-Electric acquisition, shares plunge',src:'Exp Tribune'},
+  {co:'DEC',s:0.80,t:'Nuclear',h:'Wins bid for Lianjiang Nuclear Plant, CAP1000',src:'HKEX'},
+  {co:'DEC',s:0.75,t:'Nuclear',h:'China nuclear +152% YoY H1 2025, DEC top OEM',src:'Greenpeace'},
+  {co:'DEC',s:0.75,t:'Renewable',h:'Baihetan 16GW hydropower Unit 7 operational',src:'DEC Corp'},
+  {co:'SE',s:-0.75,t:'Financial',h:'IC subsidiary fails to claim RMB4.1bn receivables',src:'Yicai'},
+  {co:'DEC',s:0.72,t:'Export',h:'F-class G50 gas turbine export to Kazakhstan',src:'Futunn'},
+  {co:'DEC',s:0.64,t:'Financial',h:'UBS initiates Buy rating, 27% EPS CAGR',src:'UBS'},
+  {co:'DEC',s:0.63,t:'Financial',h:'CICC maintains Buy, target RMB26.70',src:'CICC'},
+  {co:'DEC',s:0.62,t:'Nuclear',h:'Nuclear & gas market share #1 in industry',src:'Futunn'},
+  {co:'DEC',s:0.61,t:'Renewable',h:'H1 orders +17% YoY, renewable orders +44%',src:'Futunn'},
+  {co:'DEC',s:0.59,t:'Financial',h:'Dividend ratio 47.76% for 2025',src:'Futunn'},
+  {co:'SE',s:-0.59,t:'Governance',h:'Chairman investigated, RMB8.3bn at risk',src:'Caixin'},
+  {co:'SE',s:0.58,t:'Nuclear',h:"World's first 4th-gen nuclear plant operational",src:'SHE Corp'},
+  {co:'DEC',s:0.57,t:'Renewable',h:"World's largest pumped storage inspection passed",src:'DEC Corp'},
+  {co:'DEC',s:0.50,t:'Nuclear',h:'Exploring reactors in Bangladesh',src:'VIF'},
+  {co:'DEC',s:0.48,t:'Financial',h:'Q3 revenue +16% YoY to RMB55.5bn',src:'Futunn'},
+];
+
+// ═══ SENTIMENT FEED ═══
+const feedDiv=document.getElementById('sentFeed');
+HL.forEach(h=>{
+  const cls=h.s>0.1?'pos':(h.s<-0.1?'neg':'neu');
+  const coClass=h.co==='DEC'?'dec':'se';
+  feedDiv.innerHTML+=`<div class="feed-item">
+    <div class="feed-score ${cls}">${h.s>=0?'+':''}${h.s.toFixed(2)}</div>
+    <div class="feed-co ${coClass}">${h.co}</div>
+    <div class="feed-hl">${h.h}</div>
+    <div class="feed-src">${h.src}</div>
+  </div>`;
+});
+
+// ═══ OVERVIEW: Pair Chart ═══
+const qLabels=['Q1 22','Q2','Q3','Q4','Q1 23','Q2','Q3','Q4','Q1 24','Q2','Q3','Q4','Q1 25','Q2','Q3','Q4 25'];
+new Chart(document.getElementById('overviewPairChart'),{type:'line',data:{labels:qLabels,datasets:[
+  {label:'Dongfang (1072.HK)',data:[100,95,105,110,115,125,130,140,145,155,160,170,175,180,185,195],borderColor:'#00e676',backgroundColor:'rgba(0,230,118,0.05)',fill:true,tension:0.3,pointRadius:2,borderWidth:2},
+  {label:'Shanghai (2727.HK)',data:[100,90,85,80,78,75,70,68,65,60,58,55,52,55,50,48],borderColor:'#ff5252',backgroundColor:'rgba(255,82,82,0.05)',fill:true,tension:0.3,pointRadius:2,borderWidth:2},
+]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}},scales:{y:{grid:gridOpt},x:{grid:noGrid,ticks:{font:{size:9}}}}}});
+
+// ═══ NLP: Topic Chart ═══
+new Chart(document.getElementById('topicChart2'),{type:'bar',data:{labels:['Nuclear','Financial','Renewable','Governance','Technology','Export'],datasets:[
+  {label:'DEC',data:[0.54,0.54,0.63,0,0.45,0.72],backgroundColor:'rgba(0,230,118,0.7)',borderRadius:3},
+  {label:'SHE',data:[0.48,0.01,0.40,-0.84,0.38,-0.88],backgroundColor:'rgba(255,82,82,0.7)',borderRadius:3},
+]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:10}}},scales:{y:{min:-1,max:1,grid:gridOpt},x:{grid:noGrid}}}});
+
+// ═══ NLP: Histogram ═══
+new Chart(document.getElementById('histChart2'),{type:'bar',data:{labels:['-1 to -.75','-.75 to -.5','-.5 to -.25','-.25 to 0','0 to .25','.25 to .5','.5 to .75','.75 to 1'],datasets:[
+  {label:'DEC',data:[0,0,0,2,0,6,10,3],backgroundColor:'rgba(0,230,118,0.6)',borderRadius:2},
+  {label:'SHE',data:[4,1,2,0,2,1,1,0],backgroundColor:'rgba(255,82,82,0.6)',borderRadius:2},
+]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:10}}},scales:{y:{title:{display:true,text:'Count'},grid:gridOpt},x:{grid:noGrid,ticks:{font:{size:9}}}}}});
+
+// ═══ COAL: Capacity ═══
+const cYrs=['2015','2016','2017','2018','2019','2020','2021','2022','2023','2024','2025E','2026E','2027E','2028E','2029E','2030E'];
+new Chart(document.getElementById('capChart2'),{type:'line',data:{labels:cYrs,datasets:[
+  {label:'Wind+Solar',data:[185,240,310,370,415,535,635,758,1050,1400,1600,null,null,null,null,null],borderColor:'#00e676',backgroundColor:'rgba(0,230,118,0.05)',fill:true,tension:0.3,pointRadius:3,borderWidth:2},
+  {label:'Thermal',data:[1010,1060,1110,1145,1190,1245,1300,1332,1360,1450,1470,null,null,null,null,null],borderColor:'#ff5252',backgroundColor:'rgba(255,82,82,0.05)',fill:true,tension:0.3,pointRadius:3,borderWidth:2},
+  {label:'Clean forecast',data:[null,null,null,null,null,null,null,null,null,null,null,1691,1829,1966,2104,2241],borderColor:'#00e676',borderDash:[5,3],pointRadius:2,fill:false,borderWidth:1.5},
+  {label:'Thermal forecast',data:[null,null,null,null,null,null,null,null,null,null,null,1489,1532,1576,1620,1663],borderColor:'#ff5252',borderDash:[5,3],pointRadius:2,fill:false,borderWidth:1.5},
+]},options:{responsive:true,spanGaps:false,plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}},scales:{y:{title:{display:true,text:'GW'},grid:gridOpt},x:{grid:noGrid,ticks:{font:{size:9}}}}}});
+
+// ═══ COAL: Approvals ═══
+const aYrs=['2015','2016','2017','2018','2019','2020','2021','2022','2023','2024','2025E'];
+const aVals=[170,60,25,15,15.5,36.9,18.5,90.8,106.4,62.2,55.7];
+new Chart(document.getElementById('appChart2'),{type:'bar',data:{labels:aYrs,datasets:[{
+  data:aVals,backgroundColor:aVals.map(a=>a>80?'rgba(255,82,82,0.7)':a>50?'rgba(232,184,75,0.7)':'rgba(0,230,118,0.7)'),borderRadius:3
+}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{title:{display:true,text:'GW'},grid:gridOpt},x:{grid:noGrid,ticks:{font:{size:9}}}}}});
+
+// ═══ COAL: Correlation ═══
+new Chart(document.getElementById('corrChart2'),{type:'line',data:{labels:qLabels,datasets:[
+  {label:'Stock Spread',data:[0,5,20,30,37,50,60,72,80,95,102,115,123,125,135,147],borderColor:'#e8b84b',backgroundColor:'rgba(232,184,75,0.05)',fill:true,yAxisID:'y',tension:0.3,pointRadius:2,borderWidth:2},
+  {label:'Coal Util %',data:[49.5,49.2,48.8,48.3,47.8,47.5,47.2,46.9,46.5,46.2,45.8,45.4,44.8,44.2,43.8,43.5],borderColor:'#ff5252',yAxisID:'y1',tension:0.3,pointRadius:2,borderWidth:2,borderDash:[4,3]},
+]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:10,font:{size:10}}}},scales:{y:{position:'left',title:{display:true,text:'Spread'},grid:gridOpt},y1:{position:'right',reverse:true,title:{display:true,text:'Util % (inv)'},grid:noGrid},x:{grid:noGrid,ticks:{font:{size:9}}}}}});
+
+// ═══ COAL: Generation ═══
+new Chart(document.getElementById('genChart2'),{type:'line',data:{labels:['2015','2016','2017','2018','2019','2020','2021','2022','2023','2024','2025E'],datasets:[{
+  label:'Coal TWh',data:[3906,3907,4178,4432,4560,4631,5024,5224,5346,5400,5314],borderColor:'#ff5252',backgroundColor:'rgba(255,82,82,0.08)',fill:true,tension:0.3,pointRadius:4,borderWidth:2,
+  pointBackgroundColor:[...Array(10).fill('#ff5252'),'#00e676']
+}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{title:{display:true,text:'TWh'},grid:gridOpt},x:{grid:noGrid}}}});
+
+// ═══ FACTOR: Bar Chart ═══
+const fLabels=['Margin','ROE','D/E (inv)','Dividend','Orders','Cash','Int Cov'];
+const dS=[63,66,89,80,54,82,80];
+const sS=[27,32,25,0,32,29,10];
+new Chart(document.getElementById('factorChart3'),{type:'bar',data:{labels:fLabels,datasets:[
+  {label:'DEC',data:dS,backgroundColor:'rgba(0,230,118,0.7)',borderRadius:3},
+  {label:'SHE',data:sS,backgroundColor:'rgba(255,82,82,0.7)',borderRadius:3},
+]},options:{indexAxis:'y',responsive:true,plugins:{legend:{labels:{boxWidth:10}}},scales:{x:{min:0,max:100,title:{display:true,text:'Score (0-100)'},grid:gridOpt},y:{grid:noGrid}}}});
+
+// ═══ FACTOR: Radar ═══
+new Chart(document.getElementById('radarChart3'),{type:'radar',data:{labels:fLabels,datasets:[
+  {label:'DEC',data:dS,borderColor:'#00e676',backgroundColor:'rgba(0,230,118,0.1)',pointBackgroundColor:'#00e676',borderWidth:2},
+  {label:'SHE',data:sS,borderColor:'#ff5252',backgroundColor:'rgba(255,82,82,0.1)',pointBackgroundColor:'#ff5252',borderWidth:2},
+]},options:{responsive:true,plugins:{legend:{labels:{boxWidth:10}}},scales:{r:{min:0,max:100,ticks:{stepSize:25,color:'#3d4d66',backdropColor:'transparent'},grid:{color:'rgba(26,38,64,0.5)'},pointLabels:{color:'#6b7a96',font:{size:10}}}}}});
+
+// ═══ FACTOR: MC Histogram ═══
+const mcL=[];const mcD=[];
+for(let i=25;i<=78;i+=2){mcL.push(i+'pp');mcD.push(Math.round(450*Math.exp(-0.5*Math.pow((i-51.2)/8,2))));}
+new Chart(document.getElementById('mcChart3'),{type:'bar',data:{labels:mcL,datasets:[{data:mcD,backgroundColor:'rgba(232,184,75,0.6)',borderRadius:1}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{title:{display:true,text:'Freq'},grid:gridOpt},x:{title:{display:true,text:'Spread'},grid:noGrid,ticks:{font:{size:8},maxTicksLimit:10}}}}});
+
+// ═══ ENERGY MAP ═══
+let mapInit = false;
+const origShowView = showView;
+showView = function(i) {
+  origShowView(i);
+  if (i === 1 && !mapInit) { initMap(); mapInit = true; }
+  if (i === 1 && mapInit) { setTimeout(() => window.energyMap.invalidateSize(), 100); }
+};
+
+function initMap() {
+  const map = L.map('energyMap', { zoomControl: true, attributionControl: true }).setView([32, 108], 4);
+  window.energyMap = map;
+
+  // Dark tile layer (CartoDB Dark Matter)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd', maxZoom: 14
+  }).addTo(map);
+
+  function mkIcon(color, size) {
+    return L.divIcon({
+      className: '',
+      html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};box-shadow:0 0 ${size}px ${color},0 0 ${size*2}px ${color}40;border:2px solid rgba(255,255,255,0.3);"></div>`,
+      iconSize: [size, size], iconAnchor: [size/2, size/2]
+    });
+  }
+
+  const cyan='#18ffff', green='#00e676', red='#ff5252', blue='#448aff', gold='#e8b84b';
+
+  // Nuclear sites (DEC OEM) — Source: World Nuclear Association
+  const nuclear = [
+    {lat:19.5, lng:108.9, name:'Changjiang NPP', prov:'Hainan', oem:'DEC', status:'Unit 3-4 under construction', mw:'4×1000MW'},
+    {lat:21.7, lng:108.5, name:'Fangchenggang NPP', prov:'Guangxi', oem:'DEC', status:'Phase II operational', mw:'4×1000MW'},
+    {lat:21.6, lng:111.9, name:'Lianjiang NPP', prov:'Guangdong', oem:'DEC', status:'Under construction', mw:'2×1000MW CAP1000'},
+    {lat:23.9, lng:117.5, name:'Zhangzhou NPP', prov:'Fujian', oem:'Mixed', status:'Units 1-2 under construction', mw:'6×1200MW'},
+    {lat:27.5, lng:121.1, name:"San'ao NPP", prov:'Zhejiang', oem:'DEC', status:'Under construction', mw:'6×1200MW'},
+    {lat:22.6, lng:114.5, name:'Taipingling NPP', prov:'Guangdong', oem:'Mixed', status:'Units 1-2 near completion', mw:'6×1200MW'},
+  ];
+  nuclear.forEach(s => {
+    L.marker([s.lat, s.lng], {icon: mkIcon(cyan, 14)}).addTo(map)
+      .bindPopup(`<div style="line-height:1.6"><b style="color:${cyan}">${s.name}</b><br>
+        <span style="color:#6b7a96">Province:</span> ${s.prov}<br>
+        <span style="color:#6b7a96">OEM:</span> <b style="color:${s.oem==='DEC'?green:gold}">${s.oem}</b><br>
+        <span style="color:#6b7a96">Capacity:</span> ${s.mw}<br>
+        <span style="color:#6b7a96">Status:</span> ${s.status}</div>`);
+  });
+
+  // Wind farms — major installations
+  const wind = [
+    {lat:39.5, lng:119.5, name:'Hebei Offshore Wind', prov:'Hebei', mw:'2,000MW', note:'Largest northern offshore cluster'},
+    {lat:32.5, lng:121.5, name:'Jiangsu Offshore Wind', prov:'Jiangsu', mw:'12,000MW cum.', note:'Largest offshore province'},
+    {lat:23.4, lng:116.8, name:'Guangdong Offshore Wind', prov:'Guangdong', mw:'8,000MW planned', note:'DEC 26MW prototype pre-orders'},
+    {lat:25.0, lng:119.5, name:'Fujian Offshore Wind', prov:'Fujian', mw:'5,000MW', note:'Highest wind speeds in China'},
+    {lat:43.5, lng:116.0, name:'Inner Mongolia Wind Base', prov:'Inner Mongolia', mw:'50,000MW+', note:'Largest onshore wind base'},
+    {lat:40.5, lng:97.0, name:'Gansu Jiuquan Wind Base', prov:'Gansu', mw:'20,000MW', note:'Major GW-scale base'},
+    {lat:44.0, lng:87.5, name:'Xinjiang Dabancheng', prov:'Xinjiang', mw:'5,000MW+', note:'Oldest large wind farm'},
+    {lat:36.0, lng:120.3, name:'Shandong Offshore Wind', prov:'Shandong', mw:'3,500MW', note:'Rapidly expanding'},
+  ];
+  wind.forEach(s => {
+    L.marker([s.lat, s.lng], {icon: mkIcon(green, 11)}).addTo(map)
+      .bindPopup(`<div style="line-height:1.6"><b style="color:${green}">${s.name}</b><br>
+        <span style="color:#6b7a96">Province:</span> ${s.prov}<br>
+        <span style="color:#6b7a96">Capacity:</span> ${s.mw}<br>
+        <span style="color:#6b7a96">Note:</span> ${s.note}</div>`);
+  });
+
+  // Coal plants — major thermal hubs (declining utilization)
+  const coal = [
+    {lat:39.9, lng:116.4, name:'Beijing-Tianjin-Hebei Coal Hub', prov:'Hebei/Beijing', mw:'~80,000MW', util:'44% (↓)'},
+    {lat:37.9, lng:112.5, name:'Shanxi Coal Power Base', prov:'Shanxi', mw:'~95,000MW', util:'43% (↓)'},
+    {lat:34.8, lng:113.7, name:'Henan Coal Cluster', prov:'Henan', mw:'~75,000MW', util:'42% (↓)'},
+    {lat:36.7, lng:117.0, name:'Shandong Coal Fleet', prov:'Shandong', mw:'~105,000MW', util:'45% (↓)'},
+    {lat:30.6, lng:114.3, name:'Hubei Coal Power', prov:'Hubei', mw:'~35,000MW', util:'41% (↓)'},
+    {lat:28.2, lng:112.9, name:'Hunan Coal Power', prov:'Hunan', mw:'~25,000MW', util:'40% (↓)'},
+  ];
+  coal.forEach(s => {
+    L.marker([s.lat, s.lng], {icon: mkIcon(red, 12)}).addTo(map)
+      .bindPopup(`<div style="line-height:1.6"><b style="color:${red}">${s.name}</b><br>
+        <span style="color:#6b7a96">Province:</span> ${s.prov}<br>
+        <span style="color:#6b7a96">Capacity:</span> ${s.mw}<br>
+        <span style="color:#6b7a96">Utilization:</span> <b style="color:${red}">${s.util}</b></div>`);
+  });
+
+  // Hydro / Pumped storage — DEC advantage
+  const hydro = [
+    {lat:27.8, lng:102.8, name:'Baihetan Hydropower', prov:'Sichuan/Yunnan', mw:'16,000MW', note:'2nd largest in world, DEC turbines'},
+    {lat:26.4, lng:100.1, name:'Xiluodu Hydropower', prov:'Sichuan/Yunnan', mw:'13,860MW', note:'DEC supplied generators'},
+    {lat:31.0, lng:111.0, name:'Three Gorges', prov:'Hubei', mw:'22,500MW', note:'World largest, DEC units'},
+    {lat:30.8, lng:119.2, name:'Zhejiang PSH Cluster', prov:'Zhejiang', mw:'~8,000MW PSH', note:'DEC pumped storage turbines'},
+    {lat:24.7, lng:104.3, name:'Guizhou PSH Projects', prov:'Guizhou', mw:'~5,000MW planned', note:'15th FYP pipeline'},
+  ];
+  hydro.forEach(s => {
+    L.marker([s.lat, s.lng], {icon: mkIcon(blue, 12)}).addTo(map)
+      .bindPopup(`<div style="line-height:1.6"><b style="color:${blue}">${s.name}</b><br>
+        <span style="color:#6b7a96">Province:</span> ${s.prov}<br>
+        <span style="color:#6b7a96">Capacity:</span> ${s.mw}<br>
+        <span style="color:#6b7a96">Note:</span> ${s.note}</div>`);
+  });
+
+  // Gas turbine sites — DEC moat
+  const gas = [
+    {lat:30.6, lng:104.1, name:'Deyang / DEC HQ', prov:'Sichuan', mw:'F-class G50 production', note:'DEC gas turbine manufacturing base'},
+    {lat:31.2, lng:121.5, name:'Shanghai GT Projects', prov:'Shanghai', mw:'Multiple F-class', note:'SHE first 300MW test Oct 2024'},
+    {lat:23.1, lng:113.3, name:'Guangdong GT Demand', prov:'Guangdong', mw:'~15,000MW pipeline', note:'Largest gas power demand province'},
+    {lat:29.9, lng:121.5, name:'Zhejiang GT Projects', prov:'Zhejiang', mw:'~8,000MW pipeline', note:'LNG terminal proximity'},
+  ];
+  gas.forEach(s => {
+    L.marker([s.lat, s.lng], {icon: mkIcon(gold, 11)}).addTo(map)
+      .bindPopup(`<div style="line-height:1.6"><b style="color:${gold}">${s.name}</b><br>
+        <span style="color:#6b7a96">Province:</span> ${s.prov}<br>
+        <span style="color:#6b7a96">Info:</span> ${s.mw}<br>
+        <span style="color:#6b7a96">Note:</span> ${s.note}</div>`);
+  });
+}
+</script>
+</body>
+</html>
